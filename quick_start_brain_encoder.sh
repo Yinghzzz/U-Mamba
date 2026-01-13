@@ -72,7 +72,8 @@ TRAINER="nnUNetTrainerBrainEncoder"
 FOLD="all"  # all 或 0, 1, 2, 3, 4
 
 # GPU配置
-GPU_ID=0
+GPU_ID="4,5,6,7"  # 使用的GPU ID，多GPU用逗号分隔（如 "0,1,2,3"）
+NUM_GPUS=4        # GPU数量（必须与GPU_ID中的数量一致）
 
 # 特征提取配置
 CHECKPOINT="checkpoint_final.pth"  # checkpoint_best.pth 或 checkpoint_final.pth
@@ -204,15 +205,27 @@ train_model() {
     print_info "  训练器: $TRAINER"
     print_info "  Fold: $FOLD"
     print_info "  GPU: $GPU_ID"
+    print_info "  GPU数量: $NUM_GPUS"
 
     # 设置GPU
     export CUDA_VISIBLE_DEVICES=$GPU_ID
 
     # 训练命令
-    nnUNetv2_train $DATASET_ID $CONFIGURATION $FOLD -tr $TRAINER || {
-        print_error "训练失败"
-        exit 1
-    }
+    if [ $NUM_GPUS -gt 1 ]; then
+        print_info "使用分布式训练（DDP），GPU数量: $NUM_GPUS"
+        nnUNetv2_train $DATASET_ID $CONFIGURATION $FOLD \
+            -tr $TRAINER \
+            -num_gpus $NUM_GPUS || {
+            print_error "训练失败"
+            exit 1
+        }
+    else
+        print_info "使用单GPU训练"
+        nnUNetv2_train $DATASET_ID $CONFIGURATION $FOLD -tr $TRAINER || {
+            print_error "训练失败"
+            exit 1
+        }
+    fi
 
     print_info "训练完成"
 }
