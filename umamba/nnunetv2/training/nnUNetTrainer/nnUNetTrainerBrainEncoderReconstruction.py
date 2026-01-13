@@ -23,6 +23,9 @@ class nnUNetTrainerBrainEncoderReconstruction(nnUNetTrainerBrainEncoder):
                  unpack_dataset: bool = True, device: torch.device = torch.device('cuda')):
         super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, device)
 
+        # 重建任务不需要深度监督，禁用它
+        self.enable_deep_supervision = False
+
         # 重建任务的权重
         self.mse_weight = 1.0      # MSE损失权重
         self.l1_weight = 0.5       # L1损失权重（鼓励稀疏性）
@@ -39,7 +42,7 @@ class nnUNetTrainerBrainEncoderReconstruction(nnUNetTrainerBrainEncoder):
             # 如果启用深度监督，包装损失
             loss = DeepSupervisionWrapper(
                 self._reconstruction_loss,
-                weights=None  # 使用默认权重
+                weight_factors=None  # 使用默认权重
             )
         else:
             loss = self._reconstruction_loss
@@ -184,6 +187,9 @@ class nnUNetTrainerBrainEncoderReconstructionAdvanced(nnUNetTrainerBrainEncoderR
     def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict,
                  unpack_dataset: bool = True, device: torch.device = torch.device('cuda')):
         super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, device)
+
+        # 确保深度监督被禁用
+        self.enable_deep_supervision = False
 
         # 高级损失权重
         self.mse_weight = 1.0
