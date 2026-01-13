@@ -25,7 +25,7 @@ class nnUNetTrainerBrainEncoder(nnUNetTrainerUMambaEnc):
                  unpack_dataset: bool = True, device: torch.device = torch.device('cuda')):
         super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, device)
         # 可以在这里添加额外的初始化配置
-        self.save_encoder_features = True  # 是否保存encoder特征
+        self.save_encoder_features = False  # 是否保存encoder特征（默认禁用以避免训练中断）
 
     def _set_batch_size_and_oversample(self):
         """
@@ -88,17 +88,20 @@ class nnUNetTrainerBrainEncoder(nnUNetTrainerUMambaEnc):
             如果return_all_stages=True: 返回list of features，每个元素对应一个stage
             如果return_all_stages=False: 仅返回最深层的特征
         """
-        self.network.eval()
+        # 获取实际的网络（处理DDP包装）
+        network = self.network.module if isinstance(self.network, DDP) else self.network
+
+        network.eval()
         with torch.no_grad():
             # 通过stem
-            if self.network.encoder.stem is not None:
-                x = self.network.encoder.stem(x)
+            if network.encoder.stem is not None:
+                x = network.encoder.stem(x)
 
             # 通过所有encoder stages
             features = []
-            for s in range(len(self.network.encoder.stages)):
-                x = self.network.encoder.stages[s](x)
-                x = self.network.encoder.mamba_layers[s](x)
+            for s in range(len(network.encoder.stages)):
+                x = network.encoder.stages[s](x)
+                x = network.encoder.mamba_layers[s](x)
                 features.append(x)
 
         if return_all_stages:
@@ -112,12 +115,15 @@ class nnUNetTrainerBrainEncoder(nnUNetTrainerUMambaEnc):
 
         返回: (channels, spatial_dims)
         """
+        # 获取实际的网络（处理DDP包装）
+        network = self.network.module if isinstance(self.network, DDP) else self.network
+
         # 获取最后一个stage的特征通道数
-        num_channels = self.network.encoder.output_channels[-1]
+        num_channels = network.encoder.output_channels[-1]
 
         # 计算最后一个stage的空间维度
         patch_size = self.configuration_manager.patch_size
-        strides = self.network.encoder.strides
+        strides = network.encoder.strides
 
         spatial_size = list(patch_size)
         for stride in strides:
@@ -132,12 +138,19 @@ class nnUNetTrainerBrainEncoder(nnUNetTrainerUMambaEnc):
         output = super().validation_step(batch)
 
         # 可选：保存特征用于分析
+        # 注意：在DDP训练中，只在主进程(rank 0)执行特征提取以避免冲突
         if self.save_encoder_features and self.current_epoch % 10 == 0:
-            with torch.no_grad():
-                data = batch['data']
-                features = self.extract_encoder_features(data, return_all_stages=True)
-                # 这里可以添加特征保存逻辑
-                # 例如：保存特征的统计信息、可视化等
+            if not self.is_ddp or self.local_rank == 0:
+                try:
+                    with torch.no_grad():
+                        data = batch['data']
+                        features = self.extract_encoder_features(data, return_all_stages=True)
+                        # 这里可以添加特征保存逻辑
+                        # 例如：保存特征的统计信息、可视化等
+                except Exception as e:
+                    # 如果特征提取失败，不影响训练
+                    if self.local_rank == 0:
+                        self.print_to_log_file(f"警告: 特征提取失败: {e}")
 
         return output
 
