@@ -103,7 +103,7 @@ if __name__ == '__main__':
     # ========== 配置区域 - 请修改这些路径 ==========
 
     # 你的原始数据路径
-    SOURCE_IMAGE_DIR = "/path/to/your/brain/images"  # 修改为你的图像目录
+    SOURCE_IMAGE_DIR = "/home/huawei/public/home/langdy/pipeline2/processed_3d_128_nii"  # 修改为你的图像目录
     SOURCE_LABEL_DIR = None  # 如果有标签，修改为标签目录；否则保持None
 
     # 数据集配置
