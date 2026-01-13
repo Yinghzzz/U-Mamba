@@ -54,7 +54,7 @@ EOF
 # ============================================
 
 # 数据路径配置
-SOURCE_IMAGE_DIR="/path/to/your/brain/images"  # 修改为你的原始图像目录
+SOURCE_IMAGE_DIR="/home/huawei/public/home/langdy/pipeline2/processed_3d_128_nii"  # 修改为你的原始图像目录
 SOURCE_LABEL_DIR=""  # 如果有标签，设置此路径；否则留空
 
 # 数据集配置
@@ -163,10 +163,19 @@ prepare_dataset() {
     print_info "数据集名称: $DATASET_NAME"
 
     # 运行数据准备脚本
-    # 注意：需要修改Python脚本以接受命令行参数，或者直接在这里用Python -c执行
     print_info "运行数据准备脚本..."
 
-    python prepare_brain_dataset.py
+    # 构建参数
+    LABEL_ARG=""
+    if [ -n "$SOURCE_LABEL_DIR" ]; then
+        LABEL_ARG="--source_label_dir $SOURCE_LABEL_DIR"
+    fi
+
+    python prepare_brain_dataset.py \
+        --source_image_dir "$SOURCE_IMAGE_DIR" \
+        $LABEL_ARG \
+        --dataset_id $DATASET_ID \
+        --dataset_name "$DATASET_NAME"
 
     print_info "数据准备完成"
 }

@@ -100,21 +100,24 @@ def prepare_brain_dataset(
 
 
 if __name__ == '__main__':
-    # ========== 配置区域 - 请修改这些路径 ==========
+    import argparse
 
-    # 你的原始数据路径
-    SOURCE_IMAGE_DIR = "/home/huawei/public/home/langdy/pipeline2/processed_3d_128_nii"  # 修改为你的图像目录
-    SOURCE_LABEL_DIR = None  # 如果有标签，修改为标签目录；否则保持None
+    parser = argparse.ArgumentParser(description='准备Brain MRI数据集')
+    parser.add_argument('--source_image_dir', type=str,
+                       default="/home/huawei/public/home/langdy/pipeline2/processed_3d_128_nii",
+                       help='原始图像目录')
+    parser.add_argument('--source_label_dir', type=str, default=None,
+                       help='原始标签目录（可选）')
+    parser.add_argument('--dataset_id', type=int, default=800,
+                       help='数据集ID')
+    parser.add_argument('--dataset_name', type=str, default="BrainMRI",
+                       help='数据集名称')
 
-    # 数据集配置
-    DATASET_ID = 800  # 你的数据集ID
-    DATASET_NAME = "BrainMRI"  # 数据集名称
-
-    # =============================================
+    args = parser.parse_args()
 
     prepare_brain_dataset(
-        source_image_dir=SOURCE_IMAGE_DIR,
-        source_label_dir=SOURCE_LABEL_DIR,
-        dataset_id=DATASET_ID,
-        dataset_name=DATASET_NAME
+        source_image_dir=args.source_image_dir,
+        source_label_dir=args.source_label_dir,
+        dataset_id=args.dataset_id,
+        dataset_name=args.dataset_name
     )
