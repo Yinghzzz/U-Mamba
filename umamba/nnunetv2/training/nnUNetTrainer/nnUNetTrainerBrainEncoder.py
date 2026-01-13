@@ -1,9 +1,11 @@
 """
 自定义训练器：专门用于训练Brain Encoder提取特征
 支持提取encoder的隐空间向量用于跨模态生成任务
+支持DDP训练，自动处理未使用参数的问题
 """
 import torch
 from torch import nn
+from torch.nn.parallel import DistributedDataParallel as DDP
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainerUMambaEnc import nnUNetTrainerUMambaEnc
 from nnunetv2.utilities.plans_handling.plans_handler import ConfigurationManager, PlansManager
 import numpy as np
@@ -47,6 +49,32 @@ class nnUNetTrainerBrainEncoder(nnUNetTrainerUMambaEnc):
 
         # 调用父类方法
         super()._set_batch_size_and_oversample()
+
+    def initialize(self):
+        """
+        覆盖初始化方法，在DDP包装时添加find_unused_parameters=True
+        这是为了解决Mamba模型中某些参数可能不参与梯度计算的问题
+        """
+        if not self.was_initialized:
+            # 调用父类初始化，但要在DDP包装前拦截
+            # 先执行父类的大部分初始化
+            super().initialize()
+
+            # 如果是DDP模式，重新包装network以添加find_unused_parameters
+            if self.is_ddp:
+                # 先解除原来的DDP包装
+                if isinstance(self.network, DDP):
+                    self.network = self.network.module
+
+                # 重新用正确的参数包装
+                self.network = DDP(
+                    self.network,
+                    device_ids=[self.local_rank],
+                    find_unused_parameters=True  # 允许未使用的参数
+                )
+
+                if self.local_rank == 0:
+                    self.print_to_log_file("DDP包装已启用find_unused_parameters=True")
 
     def extract_encoder_features(self, x: torch.Tensor, return_all_stages: bool = True):
         """
