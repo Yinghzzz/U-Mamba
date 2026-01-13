@@ -25,6 +25,29 @@ class nnUNetTrainerBrainEncoder(nnUNetTrainerUMambaEnc):
         # 可以在这里添加额外的初始化配置
         self.save_encoder_features = True  # 是否保存encoder特征
 
+    def _set_batch_size_and_oversample(self):
+        """
+        覆盖此方法以确保batch size适合DDP训练
+        """
+        # 在DDP模式下，确保batch size至少等于GPU数量
+        if self.is_ddp:
+            import torch.distributed as dist
+            world_size = dist.get_world_size()
+            my_rank = dist.get_rank()
+
+            original_batch_size = self.configuration_manager.batch_size
+
+            if original_batch_size < world_size:
+                # 调整batch size为GPU数量
+                self.configuration_manager.batch_size = world_size
+                if my_rank == 0:
+                    print(f"警告: 原始batch_size ({original_batch_size}) < GPU数量 ({world_size})")
+                    print(f"自动调整global batch_size为: {world_size}")
+                    print(f"每个GPU的batch_size为: 1")
+
+        # 调用父类方法
+        super()._set_batch_size_and_oversample()
+
     def extract_encoder_features(self, x: torch.Tensor, return_all_stages: bool = True):
         """
         提取encoder的隐空间特征
