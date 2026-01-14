@@ -153,6 +153,11 @@ class nnUNetTrainerBrainEncoderReconstruction(nnUNetTrainerBrainEncoder):
         losses = [o['loss'] for o in train_outputs]
         mean_loss = sum(losses) / len(losses)
 
+        # 记录到logger（用于绘图）
+        if 'train_losses' not in self.logger.my_fantastic_logging:
+            self.logger.my_fantastic_logging['train_losses'] = []
+        self.logger.my_fantastic_logging['train_losses'].append(mean_loss)
+
         self.print_to_log_file(f"train_loss {mean_loss:.4f}")
 
     def on_validation_epoch_end(self, val_outputs: list):
@@ -167,6 +172,37 @@ class nnUNetTrainerBrainEncoderReconstruction(nnUNetTrainerBrainEncoder):
         mean_loss = sum(losses) / len(losses)
         mean_psnr = sum(psnrs) / len(psnrs)
         mean_mae = sum(maes) / len(maes)
+
+        # 记录到logger（用于绘图）
+        if 'val_losses' not in self.logger.my_fantastic_logging:
+            self.logger.my_fantastic_logging['val_losses'] = []
+        if 'val_psnr' not in self.logger.my_fantastic_logging:
+            self.logger.my_fantastic_logging['val_psnr'] = []
+        if 'val_mae' not in self.logger.my_fantastic_logging:
+            self.logger.my_fantastic_logging['val_mae'] = []
+
+        self.logger.my_fantastic_logging['val_losses'].append(mean_loss)
+        self.logger.my_fantastic_logging['val_psnr'].append(mean_psnr)
+        self.logger.my_fantastic_logging['val_mae'].append(mean_mae)
+
+        # 为了兼容绘图函数，也添加一个伪Dice指标
+        if 'dice_per_class_or_region' not in self.logger.my_fantastic_logging:
+            self.logger.my_fantastic_logging['dice_per_class_or_region'] = []
+        # 使用归一化的PSNR作为伪Dice（用于绘图显示）
+        pseudo_dice = min(mean_psnr / 50.0, 1.0)  # 将PSNR归一化到[0,1]
+        self.logger.my_fantastic_logging['dice_per_class_or_region'].append([pseudo_dice])
+
+        # 计算EMA用于保存最佳模型
+        if 'ema_fg_dice' not in self.logger.my_fantastic_logging:
+            self.logger.my_fantastic_logging['ema_fg_dice'] = []
+        if len(self.logger.my_fantastic_logging['ema_fg_dice']) == 0:
+            self.logger.my_fantastic_logging['ema_fg_dice'].append(-mean_mae)
+        else:
+            # 指数移动平均
+            ema_alpha = 0.9
+            prev_ema = self.logger.my_fantastic_logging['ema_fg_dice'][-1]
+            new_ema = ema_alpha * prev_ema + (1 - ema_alpha) * (-mean_mae)
+            self.logger.my_fantastic_logging['ema_fg_dice'].append(new_ema)
 
         self.print_to_log_file(f"val_loss {mean_loss:.4f}")
         self.print_to_log_file(f"val_psnr {mean_psnr:.2f} dB")
