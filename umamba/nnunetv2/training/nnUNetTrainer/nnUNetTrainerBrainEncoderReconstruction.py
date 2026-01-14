@@ -31,6 +31,10 @@ class nnUNetTrainerBrainEncoderReconstruction(nnUNetTrainerBrainEncoder):
         self.l1_weight = 0.5       # L1损失权重（鼓励稀疏性）
         self.perceptual_weight = 0.0  # 感知损失权重（可选）
 
+        # 用于保存最佳模型的指标
+        self.current_val_mae = float('inf')
+        self.current_val_psnr = 0.0
+
     def _build_loss(self):
         """
         构建重建损失函数
@@ -168,8 +172,40 @@ class nnUNetTrainerBrainEncoderReconstruction(nnUNetTrainerBrainEncoder):
         self.print_to_log_file(f"val_psnr {mean_psnr:.2f} dB")
         self.print_to_log_file(f"val_mae {mean_mae:.4f}")
 
-        # 使用负的MAE作为模型选择指标（越小越好）
-        self.update_ema_and_checkpoint(-mean_mae)
+        # 保存当前的MAE用于后续的最佳模型判断
+        self.current_val_mae = mean_mae
+        self.current_val_psnr = mean_psnr
+
+    def on_epoch_end(self):
+        """
+        Epoch结束时的处理，包括最佳模型保存
+        """
+        from time import time
+        from os.path import join
+
+        self.print_to_log_file(
+            f"Epoch time: {time() - self.logger.my_fantastic_logging['epoch_start_timestamps'][-1]:.2f} s"
+        )
+
+        # 定期保存checkpoint
+        current_epoch = self.current_epoch
+        if (current_epoch + 1) % self.save_every == 0 and current_epoch != (self.num_epochs - 1):
+            self.save_checkpoint(join(self.output_folder, 'checkpoint_latest.pth'))
+
+        # 保存最佳模型（基于MAE，越小越好）
+        if self._best_ema is None or self.current_val_mae < self._best_ema:
+            self._best_ema = self.current_val_mae
+            self.print_to_log_file(f"Yayy! New best MAE: {self._best_ema:.4f}")
+            self.save_checkpoint(join(self.output_folder, 'checkpoint_best.pth'))
+
+        # 绘制训练曲线（如果需要）
+        if self.local_rank == 0:
+            try:
+                self.logger.plot_progress_png(self.output_folder)
+            except:
+                pass  # 绘图失败不影响训练
+
+        self.current_epoch += 1
 
 
 class nnUNetTrainerBrainEncoderReconstructionAdvanced(nnUNetTrainerBrainEncoderReconstruction):
