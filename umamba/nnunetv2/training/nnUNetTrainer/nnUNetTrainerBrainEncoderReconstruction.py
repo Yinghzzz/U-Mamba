@@ -149,7 +149,6 @@ class nnUNetTrainerBrainEncoderReconstruction(nnUNetTrainerBrainEncoder):
         losses = [o['loss'] for o in train_outputs]
         mean_loss = sum(losses) / len(losses)
 
-        self.logger.log('train_loss', mean_loss, self.current_epoch)
         self.print_to_log_file(f"train_loss {mean_loss:.4f}")
 
     def on_validation_epoch_end(self, val_outputs: list):
@@ -165,17 +164,12 @@ class nnUNetTrainerBrainEncoderReconstruction(nnUNetTrainerBrainEncoder):
         mean_psnr = sum(psnrs) / len(psnrs)
         mean_mae = sum(maes) / len(maes)
 
-        self.logger.log('val_loss', mean_loss, self.current_epoch)
-        self.logger.log('val_psnr', mean_psnr, self.current_epoch)
-        self.logger.log('val_mae', mean_mae, self.current_epoch)
-
         self.print_to_log_file(f"val_loss {mean_loss:.4f}")
         self.print_to_log_file(f"val_psnr {mean_psnr:.2f} dB")
         self.print_to_log_file(f"val_mae {mean_mae:.4f}")
 
-        # 使用PSNR作为模型选择指标（越高越好）
-        # 或者使用负的MAE（越小越好）
-        self.update_ema_and_checkpoint(-mean_mae)  # 使用负MAE，这样越小越好
+        # 使用负的MAE作为模型选择指标（越小越好）
+        self.update_ema_and_checkpoint(-mean_mae)
 
 
 class nnUNetTrainerBrainEncoderReconstructionAdvanced(nnUNetTrainerBrainEncoderReconstruction):
