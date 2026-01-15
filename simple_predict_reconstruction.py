@@ -183,12 +183,33 @@ def simple_predict(
                 # data shape: [C, D, H, W] or [C, H, W, D]
                 original_shape = data.shape
 
-                # Pad each dimension (except channel)
-                data_padded, slicer = pad_nd_image(
-                    data,
-                    shape_must_be_divisible_by=divisible_by,
-                    return_slicer=True
-                )
+                # Pad only spatial dimensions (skip channel dimension)
+                # Extract spatial dimensions
+                num_channels = data.shape[0]
+                spatial_data = data  # [C, D, H, W]
+
+                # Calculate target shape for spatial dimensions only (keep channel as-is)
+                spatial_shape = np.array(data.shape[1:])  # [D, H, W]
+                target_spatial_shape = spatial_shape + (divisible_by - spatial_shape % divisible_by) % divisible_by
+
+                # Pad spatial dimensions only
+                pad_amounts = target_spatial_shape - spatial_shape
+                pad_below = pad_amounts // 2
+                pad_above = pad_amounts - pad_below
+
+                # Create padding list: [(0,0) for channel, then actual padding for spatial dims]
+                pad_list = [(0, 0)]  # No padding for channel dimension
+                for i in range(len(spatial_shape)):
+                    pad_list.append((int(pad_below[i]), int(pad_above[i])))
+
+                # Apply padding
+                data_padded = np.pad(data, pad_list, mode='constant', constant_values=0)
+
+                # Create slicer to remove padding later (keep all channels, slice spatial dims)
+                slicer = [slice(None)]  # Keep all channels
+                for i in range(len(spatial_shape)):
+                    slicer.append(slice(int(pad_below[i]), int(pad_below[i] + spatial_shape[i])))
+                slicer = tuple(slicer)
 
                 # 转为tensor
                 data_tensor = torch.from_numpy(data_padded).float()
