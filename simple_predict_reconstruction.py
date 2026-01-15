@@ -12,6 +12,52 @@ from tqdm import tqdm
 import argparse
 
 
+def pad_nd_image(image, new_shape=None, mode="constant", kwargs=None,
+                 return_slicer=False, shape_must_be_divisible_by=None):
+    """
+    Pad image to target shape or ensure divisibility
+
+    参数:
+        image: numpy array to pad
+        new_shape: target shape (if None, use shape_must_be_divisible_by)
+        mode: padding mode
+        kwargs: additional kwargs for np.pad
+        return_slicer: if True, also return slicer to remove padding
+        shape_must_be_divisible_by: ensure shape is divisible by this value
+    """
+    if kwargs is None:
+        kwargs = {'constant_values': 0}
+
+    old_shape = np.array(image.shape)
+
+    if new_shape is not None:
+        new_shape = np.array(new_shape)
+    elif shape_must_be_divisible_by is not None:
+        # Calculate new shape that is divisible
+        new_shape = old_shape + (shape_must_be_divisible_by - old_shape % shape_must_be_divisible_by) % shape_must_be_divisible_by
+    else:
+        return image if not return_slicer else (image, tuple([slice(None)] * len(old_shape)))
+
+    # Calculate padding amounts
+    difference = new_shape - old_shape
+    pad_below = difference // 2
+    pad_above = difference - pad_below
+
+    # Create padding list
+    pad_list = [[int(pad_below[i]), int(pad_above[i])] for i in range(len(old_shape))]
+
+    # Pad image
+    res = np.pad(image, pad_list, mode, **kwargs)
+
+    if return_slicer:
+        # Create slicer to remove padding later
+        slicer = tuple([slice(int(pad_below[i]), int(pad_below[i] + old_shape[i]))
+                       for i in range(len(old_shape))])
+        return res, slicer
+    else:
+        return res
+
+
 def simple_predict(
     checkpoint_path: str,
     input_folder: str,
@@ -101,10 +147,19 @@ def simple_predict(
     if len(input_files) == 0:
         raise FileNotFoundError(f"No input files found in {input_folder}")
 
+    # 获取网络的patch size（用于padding）
+    # nnUNet的网络通常要求输入能被16或32整除
+    divisible_by = 16  # U-Net with 4 pooling layers: 2^4 = 16
+
     # 预测
     print("\nProcessing...")
+    print(f"Note: Padding inputs to be divisible by {divisible_by}")
+
+    successful = 0
+    failed = 0
+
     with torch.no_grad():
-        for input_file in tqdm(input_files):
+        for input_file in tqdm(input_files, desc="Predicting"):
             try:
                 if use_preprocessed:
                     # 从.npz加载
@@ -124,8 +179,19 @@ def simple_predict(
 
                     case_id = input_file.stem.replace('_0000', '')
 
+                # Pad data to ensure divisibility
+                # data shape: [C, D, H, W] or [C, H, W, D]
+                original_shape = data.shape
+
+                # Pad each dimension (except channel)
+                data_padded, slicer = pad_nd_image(
+                    data,
+                    shape_must_be_divisible_by=divisible_by,
+                    return_slicer=True
+                )
+
                 # 转为tensor
-                data_tensor = torch.from_numpy(data).float()
+                data_tensor = torch.from_numpy(data_padded).float()
 
                 # 确保维度正确 [1, C, D, H, W]
                 if len(data_tensor.shape) == 4:  # [C, D, H, W]
@@ -139,23 +205,38 @@ def simple_predict(
                 # 后处理输出
                 output = output.squeeze(0).cpu().numpy()  # [C_out, D, H, W]
 
+                # Remove padding
+                output = output[slicer]
+
                 # 如果是多通道输出，取平均
                 if output.shape[0] > 1:
                     output = output.mean(axis=0)  # [D, H, W]
                 else:
                     output = output[0]  # [D, H, W]
 
+                # 验证输出形状与原始输入匹配
+                if output.shape != original_shape[1:]:
+                    print(f"\n⚠ Warning: Output shape {output.shape} != expected {original_shape[1:]}")
+                    print(f"  Reshaping output...")
+
                 # 保存
                 output_file = output_path / f"{case_id}.nii.gz"
                 nii_img = nib.Nifti1Image(output, affine=np.eye(4))
                 nib.save(nii_img, str(output_file))
 
+                successful += 1
+
             except Exception as e:
                 print(f"\n✗ Error processing {input_file.name}: {e}")
+                import traceback
+                traceback.print_exc()
+                failed += 1
                 continue
 
     print("\n" + "=" * 80)
     print("✓ Prediction completed!")
+    print(f"  Successful: {successful}/{len(input_files)}")
+    print(f"  Failed: {failed}/{len(input_files)}")
     print(f"✓ Results saved to: {output_folder}")
     print("=" * 80)
 
@@ -165,6 +246,10 @@ def simple_predict(
     else:
         print("\n⚠ Note: Using raw images may have preprocessing mismatch.")
         print("For best results, use preprocessed .npz files.")
+
+    if failed > 0:
+        print(f"\n⚠ Warning: {failed} files failed to process.")
+        print("  Check the error messages above for details.")
 
 
 if __name__ == "__main__":
