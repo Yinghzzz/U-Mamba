@@ -164,8 +164,26 @@ def simple_predict(
                 if use_preprocessed:
                     # 从.npz加载
                     data_dict = np.load(input_file, allow_pickle=True)
-                    data = data_dict['data']  # [C, D, H, W] 或 [C, H, W, D]
+                    data = data_dict['data']  # 可能是 [C, D, H, W] 或 [D, H, W]
                     case_id = input_file.stem
+
+                    # 检查并确保有channel维度
+                    # nnUNet预处理后的数据：单模态通常是 [D, H, W]，多模态是 [C, D, H, W]
+                    if len(data.shape) == 3:
+                        # 3D数据无channel维度，添加channel维度
+                        data = data[np.newaxis, ...]  # [1, D, H, W]
+                    elif len(data.shape) == 4:
+                        # 4D数据，第一维应该是channel
+                        # 但需要检查channel数是否合理（通常是1）
+                        if data.shape[0] > 10:
+                            # 第一维很大，可能是空间维度，不是channel
+                            # 假设是 [D, H, W, C] 格式，转换为 [C, D, H, W]
+                            data = np.transpose(data, (3, 0, 1, 2))
+                            # 如果还是只有1个channel，去掉最后的维度
+                            if data.shape[0] == 1:
+                                data = data[0]  # [D, H, W]
+                                data = data[np.newaxis, ...]  # [1, D, H, W]
+
                 else:
                     # 从.nii.gz加载
                     nii = nib.load(str(input_file))
@@ -179,15 +197,31 @@ def simple_predict(
 
                     case_id = input_file.stem.replace('_0000', '')
 
+                # 确保数据是 [C, ...] 格式，C应该是1
+                if data.shape[0] != 1:
+                    print(f"\n⚠ Warning: Unexpected channel count {data.shape[0]} for {case_id}")
+                    print(f"  Data shape: {data.shape}")
+                    # 如果channel数异常，可能是维度顺序问题
+                    # 强制reshape为单channel
+                    if len(data.shape) == 4:
+                        # 假设是 [D, H, W, C] 或其他格式，强制为 [1, D, H, W]
+                        # 找最小的维度作为channel
+                        min_dim = np.argmin(data.shape)
+                        if data.shape[min_dim] == 1:
+                            # 移动这个维度到第一位
+                            axes = list(range(len(data.shape)))
+                            axes.insert(0, axes.pop(min_dim))
+                            data = np.transpose(data, axes)
+                            print(f"  Reshaped to: {data.shape}")
+
+                # 最后确认：必须是 [1, D, H, W] 格式
+                assert data.shape[0] == 1, f"Channel dimension must be 1, got {data.shape[0]}"
+
                 # Pad data to ensure divisibility
-                # data shape: [C, D, H, W] or [C, H, W, D]
+                # data shape: [1, D, H, W]
                 original_shape = data.shape
 
                 # Pad only spatial dimensions (skip channel dimension)
-                # Extract spatial dimensions
-                num_channels = data.shape[0]
-                spatial_data = data  # [C, D, H, W]
-
                 # Calculate target shape for spatial dimensions only (keep channel as-is)
                 spatial_shape = np.array(data.shape[1:])  # [D, H, W]
                 target_spatial_shape = spatial_shape + (divisible_by - spatial_shape % divisible_by) % divisible_by
@@ -214,7 +248,7 @@ def simple_predict(
                 # 转为tensor
                 data_tensor = torch.from_numpy(data_padded).float()
 
-                # 确保维度正确 [1, C, D, H, W]
+                # 添加batch维度 [1, C, D, H, W]
                 if len(data_tensor.shape) == 4:  # [C, D, H, W]
                     data_tensor = data_tensor.unsqueeze(0)  # [1, C, D, H, W]
 
